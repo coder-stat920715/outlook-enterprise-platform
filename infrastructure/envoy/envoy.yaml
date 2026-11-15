@@ -1,0 +1,74 @@
+# Envoy = L7 load balancer in front of the API gateways.
+#  * LEAST_REQUEST with SLOW START (60s ramp) so a freshly (re)started gateway is not handed full load while cold.
+#  * healthy_panic_threshold 75%: when MORE THAN 25% of hosts fail health checks Envoy stops trusting health and routes
+#    to ALL hosts (panic mode) instead of concentrating load on the survivors (the cascade of Nov 12-13, 2026).
+#  * outlier_detection ejects at most 25% of hosts; health checks are jittered with hysteresis (2 ok / 3 fail).
+static_resources:
+  listeners:
+    - name: ingress
+      address: { socket_address: { address: 0.0.0.0, port_value: 8081 } }
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress
+                stream_idle_timeout: 3600s
+                upgrade_configs: [{ upgrade_type: websocket }]
+                route_config:
+                  name: local
+                  virtual_hosts:
+                    - name: api
+                      domains: ["*"]
+                      routes:
+                        - match: { prefix: "/" }
+                          route:
+                            cluster: gateways
+                            timeout: 0s                      # SSE/WebSocket pass through; request timeouts live in the gateway
+                            retry_policy:
+                              retry_on: connect-failure,refused-stream,reset
+                              num_retries: 1                 # at most ONE retry: no retry amplification under overload
+                              retry_back_off: { base_interval: 0.05s, max_interval: 0.5s }
+                http_filters:
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+  clusters:
+    - name: gateways
+      type: STRICT_DNS
+      connect_timeout: 1s
+      lb_policy: LEAST_REQUEST
+      least_request_lb_config:
+        choice_count: 2
+        slow_start_config:
+          slow_start_window: 60s
+          aggression: { default_value: 1.0, runtime_key: upstream.gateways.slow_start.aggression }
+          min_weight_percent: { value: 10 }
+      common_lb_config:
+        healthy_panic_threshold: { value: 75.0 }
+      circuit_breakers:
+        thresholds:
+          - max_connections: 20000
+            max_pending_requests: 2000
+            max_requests: 20000
+            max_retries: 20
+      outlier_detection:
+        consecutive_5xx: 10
+        interval: 10s
+        base_ejection_time: 30s
+        max_ejection_percent: 25
+      health_checks:
+        - timeout: 2s
+          interval: 5s
+          interval_jitter: 1s
+          unhealthy_threshold: 3
+          healthy_threshold: 2
+          http_health_check: { path: /actuator/health/readiness }
+      load_assignment:
+        cluster_name: gateways
+        endpoints:
+          - lb_endpoints:
+              - { endpoint: { address: { socket_address: { address: gateway-1, port_value: 8080 } } } }
+              - { endpoint: { address: { socket_address: { address: gateway-2, port_value: 8080 } } } }
+admin:
+  address: { socket_address: { address: 0.0.0.0, port_value: 9901 } }

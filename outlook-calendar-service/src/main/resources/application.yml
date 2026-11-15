@@ -1,0 +1,40 @@
+server:
+  port: 8082
+  shutdown: graceful
+
+spring:
+  application.name: calendar-service
+  threads.virtual.enabled: true
+  data.redis.url: ${REDIS_URL:redis://localhost:6379}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties: { enable.idempotence: true }
+
+outlook:
+  redis.address: ${REDIS_ADDRESS:redis://localhost:6379}
+  sharding:
+    enabled: true
+    shard-count: 16
+    virtual-nodes: 256
+    hosts: ${PG_HOSTS:localhost}
+    port: ${PG_PORT:5432}
+    username: ${PG_USER:outlook}
+    password: ${PG_PASSWORD:outlook}
+    max-pool-size-per-shard: 6
+    migrate-on-startup: false                  # mail-service owns schema migration
+  calendar.cross-tenant-freebusy: ${CROSS_TENANT_FREEBUSY:false}
+  load-shedding: { max-limit: 512, initial-limit: 48, warmup-seconds: 60 }
+  readiness.warmup-hold-seconds: 8
+
+management:
+  endpoint.health:
+    probes.enabled: true
+    group:
+      liveness.include: livenessState,jvmLiveness
+      readiness.include: readinessState,warmupReadiness
+  endpoints.web.exposure.include: health,prometheus,info
+  health: { db.enabled: false, redis.enabled: false, circuitbreakers.enabled: false }

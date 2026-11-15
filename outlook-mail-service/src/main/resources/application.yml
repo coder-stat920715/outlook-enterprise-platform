@@ -1,0 +1,62 @@
+server:
+  port: 8081
+  shutdown: graceful
+  tomcat.threads.max: 400
+
+spring:
+  application.name: mail-service
+  threads.virtual.enabled: true                       # Java 21 virtual threads for request handling
+  lifecycle.timeout-per-shutdown-phase: 30s
+  data.redis.url: ${REDIS_URL:redis://localhost:6379}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties: { enable.idempotence: true, max.in.flight.requests.per.connection: 5, linger.ms: 5, compression.type: lz4 }
+    consumer:
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      properties: { max.poll.interval.ms: 300000, session.timeout.ms: 30000 }
+    listener.ack-mode: manual
+
+outlook:
+  sharding:
+    enabled: true
+    shard-count: 16
+    virtual-nodes: 256
+    hosts: ${PG_HOSTS:localhost}                      # comma separated; shard i -> hosts[i * n / 16]
+    port: ${PG_PORT:5432}
+    username: ${PG_USER:outlook}
+    password: ${PG_PASSWORD:outlook}
+    max-pool-size-per-shard: 8
+    migrate-on-startup: ${MIGRATE_ON_STARTUP:true}
+  mail:
+    opensearch-url: ${OPENSEARCH_URL:http://localhost:9200}
+    minio-endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+    minio-public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://localhost:9000}
+    minio-access-key: ${MINIO_ACCESS_KEY:minioadmin}
+    minio-secret-key: ${MINIO_SECRET_KEY:minioadmin}
+    cdn-base-url: ${CDN_BASE_URL:http://localhost:8080}
+    cdn-secret: ${CDN_SECRET:change-me-cdn-secret}
+    delta-secret: ${DELTA_SECRET:change-me-delta-secret}
+    smtp-failure-rate: ${SMTP_FAILURE_RATE:0.0}
+  load-shedding: { max-limit: 1024, initial-limit: 64, warmup-seconds: 60 }
+  readiness.warmup-hold-seconds: 8
+  kafka.concurrency: 3
+
+management:
+  endpoint.health:
+    probes.enabled: true
+    group:
+      liveness.include: livenessState,jvmLiveness          # JVM only: never DB/Redis/Kafka/IdP
+      readiness.include: readinessState,warmupReadiness    # local readiness; dependency state is informational
+      dependencies.include: dependencies
+  endpoints.web.exposure.include: health,prometheus,info
+  health:
+    db.enabled: false
+    redis.enabled: false
+    circuitbreakers.enabled: false

@@ -1,0 +1,32 @@
+server:
+  port: 8083
+  shutdown: graceful
+
+spring:
+  application.name: notification-service
+  threads.virtual.enabled: true
+  data.redis.url: ${REDIS_URL:redis://localhost:6379}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    consumer:
+      auto-offset-reset: latest                     # push is best-effort; clients resync via delta
+      group-id: notification-relay
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+outlook:
+  sharding.enabled: false
+  notification:
+    max-new-connections-per-second: 200
+    max-connections: 50000
+  load-shedding: { max-limit: 1024, initial-limit: 64, warmup-seconds: 60 }
+  readiness.warmup-hold-seconds: 8
+
+management:
+  endpoint.health:
+    probes.enabled: true
+    group:
+      liveness.include: livenessState,jvmLiveness
+      readiness.include: readinessState,warmupReadiness
+  endpoints.web.exposure.include: health,prometheus,info
+  health: { db.enabled: false, redis.enabled: false, circuitbreakers.enabled: false }

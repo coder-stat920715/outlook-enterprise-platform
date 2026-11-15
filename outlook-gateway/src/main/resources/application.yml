@@ -1,0 +1,80 @@
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  application.name: outlook-gateway
+  threads.virtual.enabled: true
+  data.redis.url: ${REDIS_URL:redis://localhost:6379}
+  autoconfigure.exclude:
+    - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+  cloud:
+    loadbalancer:
+      cache.enabled: false
+    gateway:
+      httpclient:
+        connect-timeout: 1500
+        response-timeout: 10s
+        pool: { type: elastic, max-idle-time: 30s }
+      routes:
+        - id: calendar
+          uri: lb://calendar-service
+          predicates:
+            - Path=/v1/mailboxes/*/events/**,/v1/mailboxes/*/calendar/**,/v1/freebusy/**,/v1/resources/**
+          filters:
+            - name: CircuitBreaker
+              args: { name: calendarCb, fallbackUri: "forward:/fallback/calendar" }
+        - id: notifications
+          uri: lb://notification-service
+          predicates:
+            - Path=/v1/notifications/**,/ws/**
+          # no CircuitBreaker/TimeLimiter on long-lived SSE/WebSocket streams
+        - id: mail
+          uri: lb://mail-service
+          predicates:
+            - Path=/v1/**
+          filters:
+            - name: CircuitBreaker
+              args: { name: mailCb, fallbackUri: "forward:/fallback/mail" }
+
+resilience4j:
+  circuitbreaker.configs.default:
+    sliding-window-size: 50
+    minimum-number-of-calls: 20
+    failure-rate-threshold: 60
+    wait-duration-in-open-state: 10s
+  timelimiter.configs.default.timeout-duration: 8s
+
+outlook:
+  gateway:
+    admin-key: ${GATEWAY_ADMIN_KEY:change-me}
+    redis-uri: ${REDIS_URL:redis://localhost:6379}
+    auth:
+      mode: ${AUTH_MODE:introspect}
+      introspection-url: ${IDP_INTROSPECTION_URL:http://localhost:9099/introspect}
+      fresh-seconds: 60
+      swr-seconds: 300
+      stale-if-error-seconds: 3600
+      upstream-timeout-millis: 1500
+    rate-limit:
+      enabled: true
+      ip:     { capacity: 600,   refill-per-second: 100 }
+      user:   { capacity: 300,   refill-per-second: 50 }
+      tenant: { capacity: 20000, refill-per-second: 4000 }
+    panic:
+      healthy-panic-threshold-percent: 75      # >25% unhealthy => stop ejecting
+      probe-interval-millis: 5000
+      mail-upstreams: ${MAIL_UPSTREAMS:http://localhost:8081}
+      calendar-upstreams: ${CALENDAR_UPSTREAMS:http://localhost:8082}
+      notification-upstreams: ${NOTIFICATION_UPSTREAMS:http://localhost:8083}
+    shedding: { max-limit: 2048, initial-limit: 128, warmup-seconds: 60 }
+
+management:
+  endpoint.health:
+    probes.enabled: true
+    group:
+      liveness.include: livenessState,jvmLiveness            # JVM only - never downstream
+      readiness.include: readinessState,warmupReadiness
+  endpoints.web.exposure.include: health,prometheus,info
+  health.redis.enabled: false
+  health.circuitbreakers.enabled: false
