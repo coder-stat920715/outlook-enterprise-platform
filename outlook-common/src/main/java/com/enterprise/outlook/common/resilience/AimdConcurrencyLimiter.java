@@ -6,19 +6,44 @@ import java.util.function.LongSupplier;
 
 /**
  * Adaptive concurrency limiter combining Gradient2 (latency-gradient driven growth) with AIMD safety:
- * <ul>
- *   <li>healthy: limit follows gradient = tolerance * longRtt / shortRtt, plus sqrt(limit) queue headroom;</li>
- *   <li>drop / 5xx / scheduler lag: multiplicative decrease (limit *= backoffRatio);</li>
- *   <li>warm-up: the ceiling ramps from 5% to 100% of maxLimit over {@code warmupMillis} after process start,
- *       so a restarted pod with cold caches is never handed full load (restart death-spiral protection);</li>
- *   <li>priorities: BACKGROUND is shed at 50% of the limit, NORMAL at 80%, INTERACTIVE at 100%, CRITICAL never.</li>
- * </ul>
+ * healthy -> limit follows gradient = tolerance * longRtt / shortRtt plus sqrt(limit) headroom;
+ * drop / 5xx / scheduler lag -> multiplicative decrease; warm-up ceiling ramps 5% -> 100% of maxLimit;
+ * BACKGROUND is shed at 50% of the limit, NORMAL at 80%, INTERACTIVE at 100%, CRITICAL never.
  */
 public final class AimdConcurrencyLimiter {
 
-    public record Config(int minLimit, int initialLimit, int maxLimit, double smoothing,
-                         double rttTolerance, double backoffRatio, long warmupMillis, double lagThresholdMillis) {
+    public static final class Config {
+        private final int minLimit;
+        private final int initialLimit;
+        private final int maxLimit;
+        private final double smoothing;
+        private final double rttTolerance;
+        private final double backoffRatio;
+        private final long warmupMillis;
+        private final double lagThresholdMillis;
+
+        public Config(int minLimit, int initialLimit, int maxLimit, double smoothing,
+                      double rttTolerance, double backoffRatio, long warmupMillis, double lagThresholdMillis) {
+            this.minLimit = minLimit;
+            this.initialLimit = initialLimit;
+            this.maxLimit = maxLimit;
+            this.smoothing = smoothing;
+            this.rttTolerance = rttTolerance;
+            this.backoffRatio = backoffRatio;
+            this.warmupMillis = warmupMillis;
+            this.lagThresholdMillis = lagThresholdMillis;
+        }
+
         public static Config defaults() { return new Config(4, 64, 1024, 0.2, 1.5, 0.9, 60_000, 75.0); }
+
+        public int minLimit() { return minLimit; }
+        public int initialLimit() { return initialLimit; }
+        public int maxLimit() { return maxLimit; }
+        public double smoothing() { return smoothing; }
+        public double rttTolerance() { return rttTolerance; }
+        public double backoffRatio() { return backoffRatio; }
+        public long warmupMillis() { return warmupMillis; }
+        public double lagThresholdMillis() { return lagThresholdMillis; }
     }
 
     public static final class Permit {

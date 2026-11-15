@@ -45,6 +45,9 @@ python3 infrastructure/chaos-test/simulate_nov2026_outage.py --base http://local
 ```
 Scenarios: IdP outage (cached tokens survive, new tokens fail fast with `Retry-After`), reconnect storm (admission control), region drain/ramp.
 
+## API testing (Postman)
+`postman/` contains a 139-request collection with assertions, an environment, a token minting helper, a stress-test compose overlay and `TESTING_GUIDE.md` (step-by-step expected results, manual resilience drills).
+
 ## Tests
 `mvn test` runs unit tests; `*IT` classes need Docker (Testcontainers): partition pruning (`PartitionPruningIT`) and distributed rate limiting (`RateLimiterServiceIT`).
 

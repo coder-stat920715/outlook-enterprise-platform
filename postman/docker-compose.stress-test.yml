@@ -1,0 +1,15 @@
+# Overlay that makes the protection mechanisms easy to trigger by hand.
+#   docker compose -f docker-compose.yml -f postman/docker-compose.stress-test.yml up -d gateway-1 gateway-2 notification
+# Revert with:  docker compose up -d gateway-1 gateway-2 notification
+services:
+  gateway-1: &gw
+    environment:
+      OUTLOOK_GATEWAY_RATELIMIT_IP_CAPACITY: "30"          # per-IP burst 30 ...
+      OUTLOOK_GATEWAY_RATELIMIT_IP_REFILLPERSECOND: "1"    # ... refill 1/s  -> 429 after ~30 quick requests
+      OUTLOOK_GATEWAY_SHEDDING_MAXLIMIT: "16"              # tiny concurrency ceiling -> adaptive shedding is easy to see
+      OUTLOOK_GATEWAY_SHEDDING_WARMUPSECONDS: "1"
+  gateway-2: *gw
+  notification:
+    environment:
+      OUTLOOK_NOTIFICATION_MAXNEWCONNECTIONSPERSECOND: "5"  # reconnect-storm admission control triggers quickly
+      OUTLOOK_NOTIFICATION_MAXCONNECTIONS: "50"
